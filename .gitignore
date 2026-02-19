@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+
+# Local env and caches
+.env
+.DS_Store
+
+# SQLite artifacts
+*.db
+*.db-shm
+*.db-wal
+
+# Runtime logs
+*.log
+
+# IDE
+.vscode/
+.idea/

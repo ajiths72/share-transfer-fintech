@@ -1,0 +1,160 @@
+openapi: 3.0.3
+info:
+  title: FinShare Transfer API
+  version: 2.0.0
+  description: API for online share transfer with maker-checker approvals, TOTP 2FA, and session revocation.
+servers:
+  - url: http://localhost:8080
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: SignedToken
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+paths:
+  /api/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: Healthy
+  /api/register:
+    post:
+      summary: Register account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+                role: { type: string, enum: [TRADER, COMPLIANCE] }
+      responses:
+        '201':
+          description: Token returned
+  /api/login:
+    post:
+      summary: Login (requires OTP if 2FA enabled)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string }
+                password: { type: string }
+                otp: { type: string }
+      responses:
+        '200':
+          description: Token returned
+        '202':
+          description: OTP required
+  /api/logout:
+    post:
+      summary: Revoke current session
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Logged out }
+  /api/me:
+    get:
+      summary: Current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: User details }
+  /api/2fa/setup:
+    post:
+      summary: Generate 2FA secret
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Secret returned }
+  /api/2fa/enable:
+    post:
+      summary: Enable 2FA with OTP
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Enabled }
+  /api/2fa/disable:
+    post:
+      summary: Disable 2FA with OTP
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Disabled }
+  /api/sessions:
+    get:
+      summary: List own sessions
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Sessions listed }
+  /api/sessions/revoke:
+    post:
+      summary: Revoke a single own session
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Revoked }
+  /api/sessions/revoke-all:
+    post:
+      summary: Revoke all own sessions
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Revoked all }
+  /api/portfolios:
+    get:
+      summary: Get portfolio view
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Portfolio list }
+  /api/transfers:
+    get:
+      summary: List transfers
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Transfer list }
+    post:
+      summary: Create transfer
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+  /api/transfers/{id}/approve:
+    post:
+      summary: Approve transfer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Approved }
+  /api/transfers/{id}/reject:
+    post:
+      summary: Reject transfer
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Rejected }
+  /api/transfers/{id}/execute:
+    post:
+      summary: Execute transfer settlement
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Executed }
