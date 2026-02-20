@@ -38,7 +38,7 @@ jobs:
         run: terraform validate
 
   plan:
-    if: github.event_name == 'pull_request' && secrets.KUBE_CONFIG_B64 != ''
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -46,16 +46,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+      - name: Check kubeconfig secret availability
+        id: kubeconfig
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          if [ -z "${KUBE_CONFIG_B64}" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Prepare kubeconfig
+        if: steps.kubeconfig.outputs.available == 'true'
         run: |
           mkdir -p ~/.kube
           echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > ~/.kube/config
       - name: Terraform init
+        if: steps.kubeconfig.outputs.available == 'true'
         run: terraform init
       - name: Terraform plan
+        if: steps.kubeconfig.outputs.available == 'true'
         env:
           TF_VAR_gitops_repo_url: https://github.com/${{ github.repository }}.git
         run: terraform plan -no-color
+      - name: Skip message when secret missing
+        if: steps.kubeconfig.outputs.available != 'true'
+        run: echo "Skipping terraform plan because KUBE_CONFIG_B64 is not configured."
 
   apply:
     if: github.event_name == 'workflow_dispatch' && inputs.apply == true
