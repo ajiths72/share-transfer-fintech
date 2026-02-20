@@ -15,4 +15,4 @@ patches:
 images:
   - name: ghcr.io/placeholder/finshare-transfer
     newName: ghcr.io/ajiths72/share-transfer-fintech
-    newTag: sha-1639745efd975306234bbe53efdb72439ecd56eb
+    newTag: sha-2e73f81af221314b164e7e1135dc776ccd6b9083
