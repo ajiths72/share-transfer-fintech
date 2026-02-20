@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
   title: FinShare Transfer API
-  version: 2.0.0
-  description: API for online share transfer with maker-checker approvals, TOTP 2FA, and session revocation.
+  version: 2.1.0
+  description: API for online share transfer plus market buys and limit buys, with maker-checker approvals, TOTP 2FA, and session revocation.
 servers:
   - url: http://localhost:8080
 components:
@@ -158,3 +158,65 @@ paths:
           schema: { type: integer }
       responses:
         '200': { description: Executed }
+  /api/market/symbols:
+    get:
+      summary: List active listed symbols with last prices
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Symbol list }
+  /api/market/orders:
+    get:
+      summary: List market orders (own orders for traders, all for admin/compliance)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Market orders }
+  /api/market/buy:
+    post:
+      summary: Execute market buy for a listed symbol
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbol, quantity]
+              properties:
+                symbol: { type: string }
+                quantity: { type: integer }
+      responses:
+        '201': { description: Market order executed }
+  /api/market/limit-buy:
+    post:
+      summary: Place a limit buy order for a listed symbol
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [symbol, quantity, limit_price]
+              properties:
+                symbol: { type: string }
+                quantity: { type: integer }
+                limit_price: { type: number }
+      responses:
+        '201': { description: Limit order created (or executed) }
+  /api/market/limit-orders:
+    get:
+      summary: List limit buy orders (own for traders, all for admin/compliance)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Limit orders }
+  /api/market/limit-orders/{id}/cancel:
+    post:
+      summary: Cancel a pending limit order
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: integer }
+      responses:
+        '200': { description: Canceled }

@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import random
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,15 @@ SECRET = os.getenv("APP_SECRET", "dev-share-transfer-secret")
 TOKEN_TTL_SECONDS = int(os.getenv("TOKEN_TTL_SECONDS", str(60 * 60 * 8)))
 
 DB = Database()
+
+DEFAULT_MARKET_SYMBOLS = [
+    ("AAPL", "Apple Inc.", 182.40, 1),
+    ("MSFT", "Microsoft Corp.", 408.15, 1),
+    ("TSLA", "Tesla Inc.", 192.85, 1),
+    ("NVDA", "NVIDIA Corp.", 811.70, 1),
+    ("AVGO", "Broadcom Inc.", 1325.10, 1),
+    ("ACME", "Acme Corp.", 12.50, 1),
+]
 
 
 def now_dt() -> datetime:
@@ -151,6 +161,139 @@ def _is_session_active(conn, db: Database, sid: str):
 def init_app():
     migrate(DB)
     seed_defaults(DB, now_iso, append_audit)
+    seed_market_symbols()
+
+
+def seed_market_symbols():
+    conn = DB.connect()
+    try:
+        for symbol, name, last_price, is_active in DEFAULT_MARKET_SYMBOLS:
+            active_value = bool(is_active) if DB.engine == "postgres" else is_active
+            if DB.engine == "postgres":
+                DB.execute(
+                    conn,
+                    """
+                    INSERT INTO market_symbols(symbol, name, last_price, is_active, updated_at)
+                    VALUES (?,?,?,?,?)
+                    ON CONFLICT(symbol) DO NOTHING
+                    """,
+                    (symbol, name, last_price, active_value, now_iso()),
+                )
+            else:
+                DB.execute(
+                    conn,
+                    """
+                    INSERT OR IGNORE INTO market_symbols(symbol, name, last_price, is_active, updated_at)
+                    VALUES (?,?,?,?,?)
+                    """,
+                    (symbol, name, last_price, active_value, now_iso()),
+                )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def refresh_market_quotes(conn):
+    rows = DB.query_all(
+        conn,
+        "SELECT symbol, last_price, is_active FROM market_symbols",
+    )
+    for r in rows:
+        active = bool(r["is_active"])
+        if not active:
+            continue
+        base = float(r["last_price"])
+        drift = random.uniform(-0.004, 0.004)  # +/-0.4% micro movement per refresh
+        updated = max(0.5, round(base * (1.0 + drift), 2))
+        DB.execute(
+            conn,
+            "UPDATE market_symbols SET last_price=?, updated_at=? WHERE symbol=?",
+            (updated, now_iso(), r["symbol"]),
+        )
+
+
+def execute_pending_limit_orders(conn):
+    pending = DB.query_all(
+        conn,
+        """
+        SELECT l.*, m.last_price
+        FROM limit_orders l
+        JOIN market_symbols m ON m.symbol = l.symbol
+        WHERE l.status='PENDING'
+        ORDER BY l.created_at ASC
+        """,
+    )
+    for order in pending:
+        market_px = float(order["last_price"])
+        limit_px = float(order["limit_price"])
+        if market_px > limit_px:
+            continue
+
+        total_amount = round(market_px * int(order["quantity"]), 2)
+        acct = DB.query_one(conn, "SELECT cash_balance FROM accounts WHERE user_id=?", (order["user_id"],))
+        if not acct or float(acct["cash_balance"]) < total_amount:
+            continue
+
+        ensure_holding_row(conn, DB, order["user_id"], order["symbol"])
+        DB.execute(
+            conn,
+            "UPDATE accounts SET cash_balance = cash_balance - ? WHERE user_id=?",
+            (total_amount, order["user_id"]),
+        )
+        DB.execute(
+            conn,
+            "UPDATE holdings SET quantity = quantity + ? WHERE user_id=? AND symbol=?",
+            (order["quantity"], order["user_id"], order["symbol"]),
+        )
+
+        if DB.engine == "postgres":
+            market_order_id = DB.query_one(
+                conn,
+                """
+                INSERT INTO market_orders(user_id, symbol, quantity, price_per_share, total_amount, status, created_at)
+                VALUES (?,?,?,?,?,'EXECUTED',?) RETURNING id
+                """,
+                (order["user_id"], order["symbol"], order["quantity"], market_px, total_amount, now_iso()),
+            )["id"]
+        else:
+            DB.execute(
+                conn,
+                """
+                INSERT INTO market_orders(user_id, symbol, quantity, price_per_share, total_amount, status, created_at)
+                VALUES (?,?,?,?,?,'EXECUTED',?)
+                """,
+                (order["user_id"], order["symbol"], order["quantity"], market_px, total_amount, now_iso()),
+            )
+            market_order_id = DB.get_last_insert_id(conn)
+
+        DB.execute(
+            conn,
+            """
+            UPDATE limit_orders
+            SET status='EXECUTED', executed_at=?, executed_price=?, total_amount=?
+            WHERE id=?
+            """,
+            (now_iso(), market_px, total_amount, order["id"]),
+        )
+        append_audit(
+            conn,
+            DB,
+            "LIMIT_ORDER_EXECUTED",
+            order["user_id"],
+            "limit_orders",
+            order["id"],
+            {
+                "symbol": order["symbol"],
+                "quantity": int(order["quantity"]),
+                "limit_price": limit_px,
+                "executed_price": market_px,
+                "total_amount": total_amount,
+                "market_order_id": market_order_id,
+            },
+        )
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -359,6 +502,89 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self._json(200, {"sessions": [dict(r) for r in rows], "current_session_id": user["sid"]})
 
+        if parsed.path == "/api/market/symbols":
+            if not user:
+                return self._json(401, {"error": "Unauthorized"})
+            conn = DB.connect()
+            refresh_market_quotes(conn)
+            execute_pending_limit_orders(conn)
+            conn.commit()
+            active_value = True if DB.engine == "postgres" else 1
+            rows = DB.query_all(
+                conn,
+                """
+                SELECT symbol, name, last_price, is_active, updated_at
+                FROM market_symbols
+                WHERE is_active=?
+                ORDER BY symbol
+                """,
+                (active_value,),
+            )
+            conn.close()
+            return self._json(200, {"symbols": [dict(r) for r in rows]})
+
+        if parsed.path == "/api/market/orders":
+            if not user:
+                return self._json(401, {"error": "Unauthorized"})
+            conn = DB.connect()
+            execute_pending_limit_orders(conn)
+            conn.commit()
+            if user["role"] in ("ADMIN", "COMPLIANCE"):
+                rows = DB.query_all(
+                    conn,
+                    """
+                    SELECT o.*, u.email
+                    FROM market_orders o
+                    JOIN users u ON u.id = o.user_id
+                    ORDER BY o.id DESC
+                    """,
+                )
+            else:
+                rows = DB.query_all(
+                    conn,
+                    """
+                    SELECT o.*, u.email
+                    FROM market_orders o
+                    JOIN users u ON u.id = o.user_id
+                    WHERE o.user_id=?
+                    ORDER BY o.id DESC
+                    """,
+                    (user["uid"],),
+                )
+            conn.close()
+            return self._json(200, {"orders": [dict(r) for r in rows]})
+
+        if parsed.path == "/api/market/limit-orders":
+            if not user:
+                return self._json(401, {"error": "Unauthorized"})
+            conn = DB.connect()
+            execute_pending_limit_orders(conn)
+            conn.commit()
+            if user["role"] in ("ADMIN", "COMPLIANCE"):
+                rows = DB.query_all(
+                    conn,
+                    """
+                    SELECT l.*, u.email
+                    FROM limit_orders l
+                    JOIN users u ON u.id = l.user_id
+                    ORDER BY l.id DESC
+                    """,
+                )
+            else:
+                rows = DB.query_all(
+                    conn,
+                    """
+                    SELECT l.*, u.email
+                    FROM limit_orders l
+                    JOIN users u ON u.id = l.user_id
+                    WHERE l.user_id=?
+                    ORDER BY l.id DESC
+                    """,
+                    (user["uid"],),
+                )
+            conn.close()
+            return self._json(200, {"limit_orders": [dict(r) for r in rows]})
+
         self.send_error(404)
 
     def do_POST(self):
@@ -536,13 +762,224 @@ class Handler(BaseHTTPRequestHandler):
             conn.close()
             return self._json(200, {"status": "revoked_all", "keep_current": keep_current})
 
+        if parsed.path == "/api/market/buy":
+            if user["role"] not in ("TRADER", "ADMIN"):
+                return self._json(403, {"error": "Only traders or admins can place market buy orders"})
+            symbol = str(payload.get("symbol", "")).strip().upper()
+            try:
+                quantity = int(payload.get("quantity", 0))
+            except (TypeError, ValueError):
+                return self._json(400, {"error": "quantity must be an integer"})
+
+            if not symbol or quantity <= 0:
+                return self._json(400, {"error": "symbol and positive quantity are required"})
+
+            conn = DB.connect()
+            market = DB.query_one(
+                conn,
+                "SELECT symbol, name, last_price, is_active FROM market_symbols WHERE symbol=?",
+                (symbol,),
+            )
+            if not market or not bool(market["is_active"]):
+                conn.close()
+                return self._json(404, {"error": f"{symbol} is not an active listed symbol"})
+
+            acct = DB.query_one(
+                conn,
+                "SELECT cash_balance FROM accounts WHERE user_id=?",
+                (user["uid"],),
+            )
+            if not acct:
+                conn.close()
+                return self._json(404, {"error": "Account not found"})
+
+            price_per_share = float(market["last_price"])
+            total_amount = round(price_per_share * quantity, 2)
+            if float(acct["cash_balance"]) < total_amount:
+                conn.close()
+                return self._json(
+                    422,
+                    {
+                        "error": (
+                            f"Insufficient cash balance. Need ${total_amount:.2f}, "
+                            f"available ${float(acct['cash_balance']):.2f}"
+                        )
+                    },
+                )
+
+            try:
+                ensure_holding_row(conn, DB, user["uid"], symbol)
+                DB.execute(
+                    conn,
+                    "UPDATE accounts SET cash_balance = cash_balance - ? WHERE user_id=?",
+                    (total_amount, user["uid"]),
+                )
+                DB.execute(
+                    conn,
+                    "UPDATE holdings SET quantity = quantity + ? WHERE user_id=? AND symbol=?",
+                    (quantity, user["uid"], symbol),
+                )
+
+                if DB.engine == "postgres":
+                    order_id = DB.query_one(
+                        conn,
+                        """
+                        INSERT INTO market_orders(
+                            user_id, symbol, quantity, price_per_share, total_amount, status, created_at
+                        ) VALUES (?,?,?,?,?,'EXECUTED',?) RETURNING id
+                        """,
+                        (user["uid"], symbol, quantity, price_per_share, total_amount, now_iso()),
+                    )["id"]
+                else:
+                    DB.execute(
+                        conn,
+                        """
+                        INSERT INTO market_orders(
+                            user_id, symbol, quantity, price_per_share, total_amount, status, created_at
+                        ) VALUES (?,?,?,?,?,'EXECUTED',?)
+                        """,
+                        (user["uid"], symbol, quantity, price_per_share, total_amount, now_iso()),
+                    )
+                    order_id = DB.get_last_insert_id(conn)
+
+                append_audit(
+                    conn,
+                    DB,
+                    "MARKET_BUY_EXECUTED",
+                    user["uid"],
+                    "market_orders",
+                    order_id,
+                    {
+                        "symbol": symbol,
+                        "quantity": quantity,
+                        "price_per_share": price_per_share,
+                        "total_amount": total_amount,
+                        "status": "EXECUTED",
+                    },
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                conn.close()
+                raise
+
+            conn.close()
+            return self._json(
+                201,
+                {
+                    "order_id": order_id,
+                    "symbol": symbol,
+                    "quantity": quantity,
+                    "price_per_share": price_per_share,
+                    "total_amount": total_amount,
+                    "status": "EXECUTED",
+                },
+            )
+
+        if parsed.path == "/api/market/limit-buy":
+            if user["role"] not in ("TRADER", "ADMIN"):
+                return self._json(403, {"error": "Only traders or admins can place limit buy orders"})
+            symbol = str(payload.get("symbol", "")).strip().upper()
+            try:
+                quantity = int(payload.get("quantity", 0))
+                limit_price = float(payload.get("limit_price", 0))
+            except (TypeError, ValueError):
+                return self._json(400, {"error": "quantity must be an integer and limit_price must be numeric"})
+            if not symbol or quantity <= 0 or limit_price <= 0:
+                return self._json(400, {"error": "symbol, quantity and limit_price are required"})
+
+            conn = DB.connect()
+            market = DB.query_one(
+                conn,
+                "SELECT symbol, is_active FROM market_symbols WHERE symbol=?",
+                (symbol,),
+            )
+            if not market or not bool(market["is_active"]):
+                conn.close()
+                return self._json(404, {"error": f"{symbol} is not an active listed symbol"})
+
+            if DB.engine == "postgres":
+                limit_order_id = DB.query_one(
+                    conn,
+                    """
+                    INSERT INTO limit_orders(
+                        user_id, symbol, quantity, limit_price, status, created_at
+                    ) VALUES (?,?,?,?, 'PENDING', ?) RETURNING id
+                    """,
+                    (user["uid"], symbol, quantity, limit_price, now_iso()),
+                )["id"]
+            else:
+                DB.execute(
+                    conn,
+                    """
+                    INSERT INTO limit_orders(
+                        user_id, symbol, quantity, limit_price, status, created_at
+                    ) VALUES (?,?,?,?, 'PENDING', ?)
+                    """,
+                    (user["uid"], symbol, quantity, limit_price, now_iso()),
+                )
+                limit_order_id = DB.get_last_insert_id(conn)
+
+            append_audit(
+                conn,
+                DB,
+                "LIMIT_ORDER_CREATED",
+                user["uid"],
+                "limit_orders",
+                limit_order_id,
+                {"symbol": symbol, "quantity": quantity, "limit_price": limit_price, "status": "PENDING"},
+            )
+            execute_pending_limit_orders(conn)
+            conn.commit()
+            row = DB.query_one(conn, "SELECT * FROM limit_orders WHERE id=?", (limit_order_id,))
+            conn.close()
+            return self._json(201, {"limit_order": dict(row)})
+
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) == 5 and parts[0] == "api" and parts[1] == "market" and parts[2] == "limit-orders" and parts[4] == "cancel":
+            if user["role"] not in ("TRADER", "ADMIN"):
+                return self._json(403, {"error": "Only traders or admins can cancel limit orders"})
+            try:
+                limit_order_id = int(parts[3])
+            except ValueError:
+                return self._json(400, {"error": "Invalid limit order id"})
+
+            conn = DB.connect()
+            row = DB.query_one(conn, "SELECT * FROM limit_orders WHERE id=?", (limit_order_id,))
+            if not row or int(row["user_id"]) != int(user["uid"]):
+                conn.close()
+                return self._json(404, {"error": "Limit order not found"})
+            if row["status"] != "PENDING":
+                conn.close()
+                return self._json(409, {"error": "Only pending limit orders can be canceled"})
+            DB.execute(
+                conn,
+                "UPDATE limit_orders SET status='CANCELED', canceled_at=? WHERE id=?",
+                (now_iso(), limit_order_id),
+            )
+            append_audit(
+                conn,
+                DB,
+                "LIMIT_ORDER_CANCELED",
+                user["uid"],
+                "limit_orders",
+                limit_order_id,
+                {"status": "CANCELED"},
+            )
+            conn.commit()
+            conn.close()
+            return self._json(200, {"status": "CANCELED", "limit_order_id": limit_order_id})
+
         if parsed.path == "/api/transfers":
             if user["role"] not in ("TRADER", "ADMIN"):
                 return self._json(403, {"error": "Only traders or admins can create transfers"})
             to_email = str(payload.get("to_email", "")).strip().lower()
             symbol = str(payload.get("symbol", "")).strip().upper()
-            quantity = int(payload.get("quantity", 0))
-            price_per_share = float(payload.get("price_per_share", 0))
+            try:
+                quantity = int(payload.get("quantity", 0))
+                price_per_share = float(payload.get("price_per_share", 0))
+            except (TypeError, ValueError):
+                return self._json(400, {"error": "quantity must be an integer and price_per_share must be numeric"})
 
             if not to_email or not symbol or quantity <= 0 or price_per_share <= 0:
                 return self._json(400, {"error": "to_email, symbol, quantity, and price_per_share are required"})

@@ -3,17 +3,26 @@ const state = {
   me: null,
   portfolios: [],
   transfers: [],
+  marketSymbols: [],
+  marketOrders: [],
+  limitOrders: [],
   audit: [],
   sessions: [],
   currentSessionId: "",
 };
+let marketPollTimer = null;
 
 const $ = (s) => document.querySelector(s);
-const toast = (msg) => {
+const toast = (msg, isError = false) => {
   const el = $("#toast");
   el.textContent = msg;
   el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 2200);
+  if (isError) {
+    el.style.borderColor = "#ff7474";
+  } else {
+    el.style.borderColor = "";
+  }
+  setTimeout(() => el.classList.add("hidden"), isError ? 4200 : 2200);
 };
 
 const api = async (path, options = {}) => {
@@ -36,6 +45,88 @@ function renderMetrics() {
     <article class="metric"><span>Cash Balance</span><strong>$${(mine?.cash_balance || 0).toLocaleString()}</strong></article>
     <article class="metric"><span>Total Shares Held</span><strong>${holdingsCount.toLocaleString()}</strong></article>
   `;
+}
+
+function renderTransferHint() {
+  const mine = state.portfolios.find((p) => p.user_id === state.me.id);
+  const holdings = mine?.holdings || [];
+  if (!holdings.length) {
+    $("#transferHint").textContent = "No transferable holdings in this account.";
+    return;
+  }
+  const text = holdings.map((h) => `${h.symbol}: ${h.quantity}`).join(" | ");
+  $("#transferHint").textContent = `Available holdings: ${text}`;
+}
+
+function renderMarketSymbols() {
+  const marketSelect = $("#marketSymbol");
+  const limitSelect = $("#limitSymbol");
+  const currentMarket = marketSelect.value;
+  const currentLimit = limitSelect.value;
+  const options = ['<option value="">Select listed symbol</option>']
+    .concat(
+      state.marketSymbols.map(
+        (s) => `<option value="${s.symbol}">${s.symbol} - ${s.name} ($${Number(s.last_price).toFixed(2)})</option>`,
+      ),
+    )
+    .join("");
+  marketSelect.innerHTML = options;
+  limitSelect.innerHTML = options;
+  if (currentMarket) marketSelect.value = currentMarket;
+  if (currentLimit) limitSelect.value = currentLimit;
+}
+
+function renderMarketHint() {
+  if (!state.marketSymbols.length) {
+    $("#marketHint").textContent = "No active listed symbols available.";
+    return;
+  }
+  $("#marketHint").textContent = state.marketSymbols
+    .map((s) => `${s.symbol}: $${Number(s.last_price).toFixed(2)}`)
+    .join(" | ");
+}
+
+function renderMarketOrders() {
+  $("#marketOrderRows").innerHTML = state.marketOrders
+    .map(
+      (o) => `
+      <tr>
+        <td>${o.id}</td>
+        <td>${o.email || "-"}</td>
+        <td>${o.symbol}</td>
+        <td>${o.quantity}</td>
+        <td>$${Number(o.price_per_share).toFixed(2)}</td>
+        <td>$${Number(o.total_amount).toFixed(2)}</td>
+        <td>${badge(o.status)}</td>
+        <td>${new Date(o.created_at).toLocaleString()}</td>
+      </tr>
+    `,
+    )
+    .join("");
+}
+
+function renderLimitOrders() {
+  $("#limitOrderRows").innerHTML = state.limitOrders
+    .map((o) => {
+      const canCancel = o.status === "PENDING" && o.user_id === state.me.id;
+      const btn = canCancel
+        ? `<button class="btn small ghost" data-cancel-limit="${o.id}">Cancel</button>`
+        : "-";
+      return `
+      <tr>
+        <td>${o.id}</td>
+        <td>${o.email || "-"}</td>
+        <td>${o.symbol}</td>
+        <td>${o.quantity}</td>
+        <td>$${Number(o.limit_price).toFixed(2)}</td>
+        <td>${badge(o.status)}</td>
+        <td>${o.executed_price ? `$${Number(o.executed_price).toFixed(2)}` : "-"}</td>
+        <td>${new Date(o.created_at).toLocaleString()}</td>
+        <td>${btn}</td>
+      </tr>
+    `;
+    })
+    .join("");
 }
 
 function badge(status) {
@@ -115,15 +206,21 @@ function renderSessions() {
 
 async function refresh() {
   state.me = await api("/api/me");
-  const [portfolioRes, transferRes, sessionRes] = await Promise.all([
+  const [portfolioRes, transferRes, sessionRes, marketSymbolsRes, marketOrdersRes, limitOrdersRes] = await Promise.all([
     api("/api/portfolios"),
     api("/api/transfers"),
     api("/api/sessions"),
+    api("/api/market/symbols"),
+    api("/api/market/orders"),
+    api("/api/market/limit-orders"),
   ]);
   state.portfolios = portfolioRes.portfolios;
   state.transfers = transferRes.transfers;
   state.sessions = sessionRes.sessions;
   state.currentSessionId = sessionRes.current_session_id;
+  state.marketSymbols = marketSymbolsRes.symbols || [];
+  state.marketOrders = marketOrdersRes.orders || [];
+  state.limitOrders = limitOrdersRes.limit_orders || [];
 
   if (["COMPLIANCE", "ADMIN"].includes(state.me.role)) {
     state.audit = (await api("/api/audit?limit=80")).audit;
@@ -133,6 +230,11 @@ async function refresh() {
 
   $("#identity").textContent = `${state.me.email} (${state.me.role})`;
   renderMetrics();
+  renderTransferHint();
+  renderMarketSymbols();
+  renderMarketHint();
+  renderMarketOrders();
+  renderLimitOrders();
   renderTransfers();
   renderAudit();
   renderSessions();
@@ -179,13 +281,107 @@ $("#registerForm").addEventListener("submit", async (e) => {
 $("#transferForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   const payload = Object.fromEntries(new FormData(e.target).entries());
+  payload.symbol = String(payload.symbol || "").trim().toUpperCase();
+  const quantity = Number(payload.quantity);
+  const price = Number(payload.price_per_share);
+  const mine = state.portfolios.find((p) => p.user_id === state.me.id);
+  const holding = (mine?.holdings || []).find((h) => h.symbol === payload.symbol);
+  const available = holding ? Number(holding.quantity) : 0;
+
+  if (!payload.symbol || !Number.isInteger(quantity) || quantity <= 0 || !(price > 0)) {
+    toast("Enter valid symbol, integer quantity, and positive price.", true);
+    return;
+  }
+  if (available < quantity) {
+    toast(`Insufficient holdings for ${payload.symbol}. Available: ${available}.`, true);
+    return;
+  }
+
   try {
     await api("/api/transfers", { method: "POST", body: JSON.stringify(payload) });
     e.target.reset();
     toast("Transfer request created");
     await refresh();
   } catch (err) {
-    toast(err.message);
+    toast(err.message, true);
+  }
+});
+
+$("#marketBuyForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = Object.fromEntries(new FormData(e.target).entries());
+  payload.symbol = String(payload.symbol || "").trim().toUpperCase();
+  const quantity = Number(payload.quantity);
+  if (!payload.symbol || !Number.isInteger(quantity) || quantity <= 0) {
+    toast("Enter valid listed symbol and integer quantity.", true);
+    return;
+  }
+  const sym = state.marketSymbols.find((s) => s.symbol === payload.symbol);
+  if (!sym) {
+    toast(`${payload.symbol} is not in listed symbols.`, true);
+    return;
+  }
+  const mine = state.portfolios.find((p) => p.user_id === state.me.id);
+  const need = Number(sym.last_price) * quantity;
+  const cash = Number(mine?.cash_balance || 0);
+  if (cash < need) {
+    toast(`Insufficient cash. Need $${need.toFixed(2)}, available $${cash.toFixed(2)}.`, true);
+    return;
+  }
+  try {
+    await api("/api/market/buy", { method: "POST", body: JSON.stringify({ symbol: payload.symbol, quantity }) });
+    e.target.reset();
+    toast(`Bought ${quantity} ${payload.symbol}`);
+    await refresh();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$("#limitBuyForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const payload = Object.fromEntries(new FormData(e.target).entries());
+  payload.symbol = String(payload.symbol || "").trim().toUpperCase();
+  const quantity = Number(payload.quantity);
+  const limitPrice = Number(payload.limit_price);
+  if (!payload.symbol || !Number.isInteger(quantity) || quantity <= 0 || !(limitPrice > 0)) {
+    toast("Enter valid symbol, integer quantity, and limit price.", true);
+    return;
+  }
+  const sym = state.marketSymbols.find((s) => s.symbol === payload.symbol);
+  if (!sym) {
+    toast(`${payload.symbol} is not in listed symbols.`, true);
+    return;
+  }
+  const mine = state.portfolios.find((p) => p.user_id === state.me.id);
+  const needed = quantity * limitPrice;
+  const cash = Number(mine?.cash_balance || 0);
+  if (cash < needed) {
+    toast(`Insufficient cash for limit order. Need up to $${needed.toFixed(2)}.`, true);
+    return;
+  }
+  try {
+    const res = await api("/api/market/limit-buy", {
+      method: "POST",
+      body: JSON.stringify({ symbol: payload.symbol, quantity, limit_price: limitPrice }),
+    });
+    e.target.reset();
+    toast(`Limit order ${res.limit_order.status.toLowerCase()} (${res.limit_order.id})`);
+    await refresh();
+  } catch (err) {
+    toast(err.message, true);
+  }
+});
+
+$("#limitOrderRows").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-cancel-limit]");
+  if (!btn) return;
+  try {
+    await api(`/api/market/limit-orders/${btn.dataset.cancelLimit}/cancel`, { method: "POST", body: "{}" });
+    toast("Limit order canceled");
+    await refresh();
+  } catch (err) {
+    toast(err.message, true);
   }
 });
 
@@ -284,6 +480,10 @@ $("#logoutBtn").addEventListener("click", async () => {
   localStorage.removeItem("token");
   state.token = "";
   state.me = null;
+  if (marketPollTimer) {
+    clearInterval(marketPollTimer);
+    marketPollTimer = null;
+  }
   $("#identity").textContent = "Not signed in";
   setSignedIn(false);
 });
@@ -296,6 +496,11 @@ $("#logoutBtn").addEventListener("click", async () => {
   try {
     setSignedIn(true);
     await refresh();
+    if (!marketPollTimer) {
+      marketPollTimer = setInterval(() => {
+        refresh().catch(() => {});
+      }, 8000);
+    }
   } catch {
     localStorage.removeItem("token");
     state.token = "";

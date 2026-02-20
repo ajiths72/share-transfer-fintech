@@ -61,6 +61,7 @@ input, select {
 .stack { display: grid; gap: .65rem; }
 .inline-form { grid-template-columns: 1fr auto; align-items: center; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .82rem; color: var(--muted); }
+#transferHint { margin-top: .55rem; }
 .transfer-form {
   display: grid;
   gap: .65rem;
@@ -95,6 +96,7 @@ th { color: var(--muted); }
 .badge.approved { background: #28857b; }
 .badge.rejected { background: #8f3b4f; }
 .badge.executed { background: #c18d33; color: #2c1800; }
+.badge.canceled { background: #5e6d82; }
 
 .toast {
   position: fixed;

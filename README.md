@@ -1,6 +1,6 @@
 # FinShare Transfer
 
-Advanced fintech web application for online share transfer with maker-checker controls, settlement execution, TOTP 2FA, revocable sessions, PostgreSQL support, migrations, Docker, CI tests, and OpenAPI docs.
+Advanced fintech web application for online share transfer and market execution with live quote refresh, market/limit buys, maker-checker controls, TOTP 2FA, revocable sessions, PostgreSQL support, migrations, Docker, CI tests, and OpenAPI docs.
 
 ## Core features
 
@@ -8,9 +8,12 @@ Advanced fintech web application for online share transfer with maker-checker co
 - Session-backed auth tokens with explicit session revocation
 - TOTP 2FA setup/enable/disable
 - Trader transfer request flow
-- Compliance/Admin maker-checker approval and rejection
+- Market buy flow for listed symbols (immediate execution)
+- Limit buy flow for listed symbols (pending until market <= limit)
+- Live quote refresh with automatic pending limit-order execution checks
+- Compliance/Admin maker-checker approval and rejection for transfers
 - Atomic settlement execution (share + cash leg)
-- Role-based portfolio views
+- Role-based portfolio and order views
 - Tamper-evident audit chain (hash-linked event logs)
 
 ## Default seeded users
@@ -68,7 +71,7 @@ pytest -q
 - Spec file: `/Applications/share-transfer-fintech/docs/openapi.yaml`
 - Hosted by app: `GET /docs/openapi.yaml`
 
-## New security APIs
+## Key APIs
 
 - `POST /api/2fa/setup`
 - `POST /api/2fa/enable`
@@ -77,5 +80,9 @@ pytest -q
 - `POST /api/sessions/revoke`
 - `POST /api/sessions/revoke-all`
 - `POST /api/logout`
-=======
-# share-transfer-fintech
+- `GET /api/market/symbols`
+- `POST /api/market/buy`
+- `GET /api/market/orders`
+- `POST /api/market/limit-buy`
+- `GET /api/market/limit-orders`
+- `POST /api/market/limit-orders/{id}/cancel`

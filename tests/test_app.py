@@ -118,6 +118,34 @@ def test_transfer_and_session_and_2fa_flow():
         assert code == 201
         tid = transfer["transfer_id"]
 
+        code, symbols = req("GET", "/api/market/symbols", token=alice_token_2)
+        assert code == 200
+        assert any(s["symbol"] == "AVGO" for s in symbols["symbols"])
+
+        code, order = req("POST", "/api/market/buy", {"symbol": "AVGO", "quantity": 1}, alice_token_2)
+        assert code == 201
+        assert order["symbol"] == "AVGO"
+        assert order["status"] == "EXECUTED"
+
+        code, orders = req("GET", "/api/market/orders", token=alice_token_2)
+        assert code == 200
+        assert any(o["symbol"] == "AVGO" for o in orders["orders"])
+
+        code, limit_order_resp = req(
+            "POST",
+            "/api/market/limit-buy",
+            {"symbol": "MSFT", "quantity": 1, "limit_price": 1000.0},
+            alice_token_2,
+        )
+        assert code == 201
+        limit_order = limit_order_resp["limit_order"]
+        assert limit_order["symbol"] == "MSFT"
+        assert limit_order["status"] in ("PENDING", "EXECUTED")
+
+        code, limit_orders = req("GET", "/api/market/limit-orders", token=alice_token_2)
+        assert code == 200
+        assert any(o["symbol"] == "MSFT" for o in limit_orders["limit_orders"])
+
         code, comp_login = req(
             "POST", "/api/login", {"email": "compliance@fintrade.com", "password": "comply123"}
         )
