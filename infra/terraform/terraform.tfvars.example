@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars and adjust
+kubeconfig_path = "~/.kube/config"
+gitops_repo_url = "https://github.com/YOUR_ORG/YOUR_REPO.git"
+gitops_revision = "main"
+gitops_path     = "deploy/overlays/prod"

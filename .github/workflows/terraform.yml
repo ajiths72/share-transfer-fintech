@@ -1,0 +1,79 @@
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - infra/terraform/**
+      - .github/workflows/terraform.yml
+  push:
+    branches:
+      - main
+    paths:
+      - infra/terraform/**
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run terraform apply"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform fmt check
+        run: terraform fmt -check -recursive
+      - name: Terraform init
+        run: terraform init -backend=false
+      - name: Terraform validate
+        run: terraform validate
+
+  plan:
+    if: github.event_name == 'pull_request' && secrets.KUBE_CONFIG_B64 != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Prepare kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > ~/.kube/config
+      - name: Terraform init
+        run: terraform init
+      - name: Terraform plan
+        env:
+          TF_VAR_gitops_repo_url: https://github.com/${{ github.repository }}.git
+        run: terraform plan -no-color
+
+  apply:
+    if: github.event_name == 'workflow_dispatch' && inputs.apply == true
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Prepare kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG_B64 }}" | base64 -d > ~/.kube/config
+      - name: Terraform init
+        run: terraform init
+      - name: Terraform apply
+        env:
+          TF_VAR_gitops_repo_url: https://github.com/${{ github.repository }}.git
+        run: terraform apply -auto-approve

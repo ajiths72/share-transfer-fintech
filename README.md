@@ -86,3 +86,39 @@ pytest -q
 - `POST /api/market/limit-buy`
 - `GET /api/market/limit-orders`
 - `POST /api/market/limit-orders/{id}/cancel`
+
+## CI/CD (GitHub Actions + Terraform + ArgoCD GitOps)
+
+### What is included
+
+- CI workflow: unit tests + Docker build + Trivy FS/image scans
+- CD workflow: build/push image to GHCR + Trivy image scan + GitOps image tag update
+- Terraform workflow: fmt/validate + optional plan/apply automation
+- Terraform IaC: installs Argo CD and bootstraps FinShare Argo Application
+- GitOps manifests: Kustomize overlays for production deployment
+
+### Artifact repository
+
+- Docker images are published to **GHCR**:
+  - `ghcr.io/<owner>/<repo>:sha-<commit_sha>`
+  - `ghcr.io/<owner>/<repo>:latest`
+
+### Required repository secrets
+
+- `KUBE_CONFIG_B64` (base64-encoded kubeconfig for the target cluster)
+
+### Required one-time updates
+
+1. Set `repoURL` in `/Applications/share-transfer-fintech/deploy/argocd/application.yaml`.
+2. Create Kubernetes secret `finshare-secrets` in namespace `finshare`.
+3. Ensure GHCR package visibility is set as needed (public for open-source pull).
+
+### Pipeline files
+
+- `/Applications/share-transfer-fintech/.github/workflows/ci.yml`
+- `/Applications/share-transfer-fintech/.github/workflows/cd.yml`
+- `/Applications/share-transfer-fintech/.github/workflows/terraform.yml`
+- `/Applications/share-transfer-fintech/infra/terraform/*`
+- `/Applications/share-transfer-fintech/deploy/base/*`
+- `/Applications/share-transfer-fintech/deploy/overlays/prod/*`
+- `/Applications/share-transfer-fintech/deploy/argocd/application.yaml`

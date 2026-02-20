@@ -19,3 +19,10 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.*
+crash.log
