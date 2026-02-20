@@ -37,6 +37,7 @@ jobs:
             ${{ env.IMAGE_NAME }}:latest
 
       - name: Trivy scan release image (report)
+        continue-on-error: true
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:${{ env.VERSION_TAG }}
@@ -48,6 +49,7 @@ jobs:
           ignore-unfixed: true
 
       - name: Upload Trivy SARIF
+        if: ${{ hashFiles('trivy-release-image.sarif') != '' }}
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-release-image.sarif
