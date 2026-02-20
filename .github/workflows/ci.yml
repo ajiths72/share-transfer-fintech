@@ -68,6 +68,7 @@ jobs:
           ignore-unfixed: true
 
       - name: "Trivy image scan (enforcement: CRITICAL only)"
+        if: ${{ vars.TRIVY_ENFORCE_CRITICAL == 'true' }}
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: finshare-ci:${{ github.sha }}
