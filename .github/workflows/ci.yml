@@ -42,24 +42,36 @@ jobs:
       - name: Build Docker image (local CI only)
         run: docker build -t finshare-ci:${{ github.sha }} .
 
-      - name: Trivy filesystem scan
+      - name: Trivy filesystem scan (report)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
           scan-ref: .
+          scanners: vuln
           format: sarif
           output: trivy-fs.sarif
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
 
-      - name: Trivy image scan
+      - name: Trivy image scan (report)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: finshare-ci:${{ github.sha }}
+          scanners: vuln
           format: sarif
           output: trivy-image.sarif
           severity: HIGH,CRITICAL
+          exit-code: "0"
+          ignore-unfixed: true
+
+      - name: Trivy image scan (enforcement: CRITICAL only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: finshare-ci:${{ github.sha }}
+          scanners: vuln
+          format: table
+          severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
 

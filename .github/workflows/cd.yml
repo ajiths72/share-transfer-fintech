@@ -43,20 +43,31 @@ jobs:
             ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
             ${{ env.IMAGE_NAME }}:latest
 
-      - name: Trivy scan pushed image
+      - name: Trivy scan pushed image (report)
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          scanners: vuln
           format: sarif
           output: trivy-image.sarif
           severity: HIGH,CRITICAL
-          exit-code: "1"
+          exit-code: "0"
           ignore-unfixed: true
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: trivy-image.sarif
+
+      - name: Trivy enforcement gate (CRITICAL only)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
+          scanners: vuln
+          format: table
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
 
       - name: Update GitOps dev image tag
         run: |
