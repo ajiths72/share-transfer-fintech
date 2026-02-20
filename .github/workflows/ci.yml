@@ -67,7 +67,7 @@ jobs:
           exit-code: "0"
           ignore-unfixed: true
 
-      - name: Trivy image scan (enforcement: CRITICAL only)
+      - name: "Trivy image scan (enforcement: CRITICAL only)"
         uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: finshare-ci:${{ github.sha }}
