@@ -33,14 +33,32 @@ resource "time_sleep" "wait_for_argocd_crds" {
   create_duration = "45s"
 }
 
-resource "kubernetes_manifest" "finshare_argocd_app" {
+locals {
+  apps = {
+    dev = {
+      path      = "deploy/overlays/dev"
+      namespace = "finshare-dev"
+    }
+    staging = {
+      path      = "deploy/overlays/staging"
+      namespace = "finshare-staging"
+    }
+    prod = {
+      path      = "deploy/overlays/prod"
+      namespace = "finshare-prod"
+    }
+  }
+}
+
+resource "kubernetes_manifest" "finshare_argocd_apps" {
+  for_each   = local.apps
   depends_on = [time_sleep.wait_for_argocd_crds]
 
   manifest = {
     apiVersion = "argoproj.io/v1alpha1"
     kind       = "Application"
     metadata = {
-      name      = "finshare"
+      name      = "finshare-${each.key}"
       namespace = var.argocd_namespace
     }
     spec = {
@@ -48,11 +66,11 @@ resource "kubernetes_manifest" "finshare_argocd_app" {
       source = {
         repoURL        = var.gitops_repo_url
         targetRevision = var.gitops_revision
-        path           = var.gitops_path
+        path           = each.value.path
       }
       destination = {
         server    = "https://kubernetes.default.svc"
-        namespace = var.app_namespace
+        namespace = each.value.namespace
       }
       syncPolicy = {
         automated = {

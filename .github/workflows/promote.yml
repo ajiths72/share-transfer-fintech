@@ -1,0 +1,57 @@
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - prod
+      image_tag:
+        description: "Image tag to promote (sha-<commit> or vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+      TARGET_ENV: ${{ inputs.target_env }}
+      IMAGE_TAG: ${{ inputs.image_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate target env
+        run: |
+          case "${TARGET_ENV}" in
+            staging|prod) ;;
+            *) echo "Invalid target env: ${TARGET_ENV}"; exit 1 ;;
+          esac
+
+      - name: Update GitOps target overlay
+        run: |
+          FILE="deploy/overlays/${TARGET_ENV}/kustomization.yaml"
+          sed -i.bak "s|newName: .*|newName: ${IMAGE_NAME}|" "${FILE}"
+          sed -i.bak "s|newTag: .*|newTag: ${IMAGE_TAG}|" "${FILE}"
+          rm -f "${FILE}.bak"
+
+      - name: Commit promotion
+        run: |
+          if git diff --quiet; then
+            echo "No promotion changes"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "deploy/overlays/${TARGET_ENV}/kustomization.yaml"
+          git commit -m "chore(promote): ${TARGET_ENV} -> ${IMAGE_TAG} [skip ci]"
+          git push

@@ -1,4 +1,4 @@
-name: CD
+name: CD Dev
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   security-events: write
 
 concurrency:
-  group: cd-main
+  group: cd-dev-main
   cancel-in-progress: false
 
 jobs:
@@ -58,11 +58,11 @@ jobs:
         with:
           sarif_file: trivy-image.sarif
 
-      - name: Update GitOps image tag
+      - name: Update GitOps dev image tag
         run: |
-          sed -i.bak "s|newName: .*|newName: ${IMAGE_NAME}|" deploy/overlays/prod/kustomization.yaml
-          sed -i.bak "s|newTag: .*|newTag: sha-${GITHUB_SHA}|" deploy/overlays/prod/kustomization.yaml
-          rm -f deploy/overlays/prod/kustomization.yaml.bak
+          sed -i.bak "s|newName: .*|newName: ${IMAGE_NAME}|" deploy/overlays/dev/kustomization.yaml
+          sed -i.bak "s|newTag: .*|newTag: sha-${GITHUB_SHA}|" deploy/overlays/dev/kustomization.yaml
+          rm -f deploy/overlays/dev/kustomization.yaml.bak
 
       - name: Commit GitOps update
         run: |
@@ -72,6 +72,6 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add deploy/overlays/prod/kustomization.yaml
-          git commit -m "chore(gitops): deploy image sha-${GITHUB_SHA} [skip ci]"
+          git add deploy/overlays/dev/kustomization.yaml
+          git commit -m "chore(gitops): deploy dev image sha-${GITHUB_SHA} [skip ci]"
           git push

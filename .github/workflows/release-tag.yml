@@ -1,0 +1,45 @@
+name: Release Tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver version without leading v (e.g. 1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        run: |
+          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be semantic (X.Y.Z)"
+            exit 1
+          fi
+
+      - name: Create tag and release
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${VERSION}"
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists"
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
+          gh release create "${TAG}" --generate-notes --title "Release ${TAG}"

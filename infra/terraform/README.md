@@ -1,6 +1,9 @@
 # Terraform IaC (Argo CD + GitOps App)
 
-This Terraform stack installs Argo CD in your Kubernetes cluster and bootstraps the `finshare` Argo CD Application.
+This Terraform stack installs Argo CD in your Kubernetes cluster and bootstraps three Argo CD Applications:
+- `finshare-dev`
+- `finshare-staging`
+- `finshare-prod`
 
 ## Prerequisites
 
@@ -21,7 +24,10 @@ terraform apply
 
 After apply:
 - Argo CD is installed in `argocd` namespace
-- Argo CD continuously syncs `deploy/overlays/prod` from your repo
+- Argo CD continuously syncs:
+  - `deploy/overlays/dev`
+  - `deploy/overlays/staging`
+  - `deploy/overlays/prod`
 
 ## Notes
 

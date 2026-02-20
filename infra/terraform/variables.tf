@@ -11,7 +11,7 @@ variable "argocd_namespace" {
 }
 
 variable "app_namespace" {
-  description = "Namespace for finshare app"
+  description = "Deprecated: legacy single-app namespace"
   type        = string
   default     = "finshare"
 }
@@ -28,7 +28,7 @@ variable "gitops_revision" {
 }
 
 variable "gitops_path" {
-  description = "Path in repo for Kustomize overlay"
+  description = "Deprecated: legacy single-app path"
   type        = string
   default     = "deploy/overlays/prod"
 }
