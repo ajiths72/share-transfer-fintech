@@ -57,13 +57,13 @@ resource "null_resource" "finshare_argocd_apps" {
   depends_on = [time_sleep.wait_for_argocd_crds]
 
   triggers = {
-    app_name      = "finshare-${each.key}"
-    repo_url      = var.gitops_repo_url
-    revision      = var.gitops_revision
-    path          = each.value.path
-    namespace     = each.value.namespace
-    argocd_ns     = var.argocd_namespace
-    kubeconfig    = local.kubeconfig_abs
+    app_name   = "finshare-${each.key}"
+    repo_url   = var.gitops_repo_url
+    revision   = var.gitops_revision
+    path       = each.value.path
+    namespace  = each.value.namespace
+    argocd_ns  = var.argocd_namespace
+    kubeconfig = local.kubeconfig_abs
   }
 
   provisioner "local-exec" {
