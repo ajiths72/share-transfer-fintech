@@ -6,5 +6,5 @@ resources:
   - hpa.yaml
 images:
   - name: ghcr.io/placeholder/finshare-transfer
-    newName: ghcr.io/placeholder/finshare-transfer
+    newName: ghcr.io/ajiths72/share-transfer-fintech
     newTag: latest

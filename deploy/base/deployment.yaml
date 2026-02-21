@@ -16,7 +16,7 @@ spec:
         app: finshare-api
     spec:
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: false
         seccompProfile:
           type: RuntimeDefault
       containers:
