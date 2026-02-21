@@ -7,9 +7,10 @@ This Terraform stack installs Argo CD in your Kubernetes cluster and bootstraps 
 
 ## Prerequisites
 
-- Terraform >= 1.6
+- Terraform >= 1.5
 - Kubernetes cluster access via kubeconfig
 - `kubectl` access verified
+ - `kubectl` binary available on PATH (used to apply Argo CD Application CRs after CRDs are installed)
 
 ## Usage
 
