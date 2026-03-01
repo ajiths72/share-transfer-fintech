@@ -7,6 +7,7 @@ import os
 import random
 import secrets
 import time
+from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -299,8 +300,16 @@ def execute_pending_limit_orders(conn):
 class Handler(BaseHTTPRequestHandler):
     server_version = "FinShareTransfer/2.0"
 
+    @staticmethod
+    def _json_default(value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, Decimal):
+            return float(value)
+        return str(value)
+
     def _json(self, status, data):
-        body = json.dumps(data).encode()
+        body = json.dumps(data, default=self._json_default).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
