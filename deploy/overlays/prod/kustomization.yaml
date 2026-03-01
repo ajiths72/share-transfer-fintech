@@ -4,7 +4,6 @@ namespace: finshare-prod
 resources:
   - namespace.yaml
   - ../../base
-# Add an actual secret manifest here (do not commit plaintext secrets).
 patches:
   - target:
       kind: Deployment
@@ -13,11 +12,7 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
-  - target:
-      kind: Deployment
-      name: finshare-api
-    path: image-patch.yaml
 images:
-  - name: ghcr.io/placeholder/finshare-transfer
+  - name: ghcr.io/ajiths72/share-transfer-fintech
     newName: ghcr.io/ajiths72/share-transfer-fintech
     newTag: sha-cf67e664fd3295d11940fc345a329d1d412eb493
