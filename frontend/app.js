@@ -206,6 +206,7 @@ function renderSessions() {
 
 async function refresh() {
   state.me = await api("/api/me");
+  $("#identity").textContent = `${state.me.email} (${state.me.role})`;
   const [portfolioRes, transferRes, sessionRes, marketSymbolsRes, marketOrdersRes, limitOrdersRes] = await Promise.all([
     api("/api/portfolios"),
     api("/api/transfers"),
@@ -228,7 +229,6 @@ async function refresh() {
     state.audit = [];
   }
 
-  $("#identity").textContent = `${state.me.email} (${state.me.role})`;
   renderMetrics();
   renderTransferHint();
   renderMarketSymbols();
@@ -245,6 +245,14 @@ function setSignedIn(isIn) {
   $("#appSection").classList.toggle("hidden", !isIn);
 }
 
+function setSignedOutState() {
+  localStorage.removeItem("token");
+  state.token = "";
+  state.me = null;
+  $("#identity").textContent = "Not signed in";
+  setSignedIn(false);
+}
+
 async function loginOrRegister(endpoint, form) {
   const payload = Object.fromEntries(new FormData(form).entries());
   if (!payload.otp) delete payload.otp;
@@ -255,7 +263,12 @@ async function loginOrRegister(endpoint, form) {
   state.token = result.token;
   localStorage.setItem("token", state.token);
   setSignedIn(true);
-  await refresh();
+  try {
+    await refresh();
+  } catch (err) {
+    setSignedOutState();
+    throw new Error(`Login succeeded but app data failed to load: ${err.message}`);
+  }
 }
 
 $("#loginForm").addEventListener("submit", async (e) => {
@@ -477,20 +490,16 @@ $("#logoutBtn").addEventListener("click", async () => {
   } catch {
     // no-op
   }
-  localStorage.removeItem("token");
-  state.token = "";
-  state.me = null;
+  setSignedOutState();
   if (marketPollTimer) {
     clearInterval(marketPollTimer);
     marketPollTimer = null;
   }
-  $("#identity").textContent = "Not signed in";
-  setSignedIn(false);
 });
 
 (async function boot() {
   if (!state.token) {
-    setSignedIn(false);
+    setSignedOutState();
     return;
   }
   try {
@@ -502,8 +511,6 @@ $("#logoutBtn").addEventListener("click", async () => {
       }, 8000);
     }
   } catch {
-    localStorage.removeItem("token");
-    state.token = "";
-    setSignedIn(false);
+    setSignedOutState();
   }
 })();
