@@ -13,6 +13,10 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
+  - target:
+      kind: Deployment
+      name: finshare-api
+    path: image-patch.yaml
 images:
   - name: ghcr.io/placeholder/finshare-transfer
     newName: ghcr.io/ajiths72/share-transfer-fintech
