@@ -21,7 +21,7 @@ resource "helm_release" "argocd" {
       }
       server = {
         service = {
-          type = "LoadBalancer"
+          type = "ClusterIP"
         }
       }
     })
@@ -67,6 +67,14 @@ locals {
   }
 }
 
+resource "kubernetes_namespace" "finshare" {
+  for_each = local.apps
+
+  metadata {
+    name = each.value.namespace
+  }
+}
+
 resource "random_password" "db_password" {
   for_each = local.apps
   length   = 24
@@ -84,7 +92,7 @@ resource "kubernetes_secret_v1" "postgres_auth" {
 
   metadata {
     name      = "postgres-auth"
-    namespace = each.value.namespace
+    namespace = kubernetes_namespace.finshare[each.key].metadata[0].name
   }
 
   type = "Opaque"
@@ -102,7 +110,7 @@ resource "kubernetes_persistent_volume_claim_v1" "postgres_data" {
 
   metadata {
     name      = "postgres-data"
-    namespace = each.value.namespace
+    namespace = kubernetes_namespace.finshare[each.key].metadata[0].name
   }
 
   spec {
@@ -121,7 +129,7 @@ resource "kubernetes_service_v1" "postgres" {
 
   metadata {
     name      = "postgres"
-    namespace = each.value.namespace
+    namespace = kubernetes_namespace.finshare[each.key].metadata[0].name
     labels = {
       app = "postgres"
     }
@@ -144,7 +152,7 @@ resource "kubernetes_deployment_v1" "postgres" {
 
   metadata {
     name      = "postgres"
-    namespace = each.value.namespace
+    namespace = kubernetes_namespace.finshare[each.key].metadata[0].name
     labels = {
       app = "postgres"
     }
@@ -208,7 +216,7 @@ resource "kubernetes_secret_v1" "finshare_secrets" {
 
   metadata {
     name      = "finshare-secrets"
-    namespace = each.value.namespace
+    namespace = kubernetes_namespace.finshare[each.key].metadata[0].name
   }
 
   type = "Opaque"

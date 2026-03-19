@@ -4,6 +4,7 @@ namespace: finshare-dev
 resources:
   - namespace.yaml
   - ../../base
+  - ingress.yaml
 patches:
   - target:
       kind: Deployment
